@@ -1,6 +1,7 @@
 from sense_hat import SenseHat, ACTION_RELEASED
 from time import sleep
 from random import randrange
+import numpy as np
 import copy
 
 # Color definitions
@@ -13,32 +14,27 @@ MAGENTA=(255,0,255)
 WHITE=(255,255,255)
 BLACK=(0,0,0)
 
-# Game parameters
 SPEED=1                     # frames per second
 
-# Data
 shape = {                   # shapes of different blocks
-    1: [[1,1],[1,1]],
-    2: [[0,0,1],[1,1,1],[0,0,0]],
-    3: [[1,1,1],[0,0,1],[0,0,0]],
-    4: [[0,1,1],[1,1,0],[0,0,0]],
-    5: [[1,1,0],[0,1,1],[0,0,0]],
-    6: [[0,1,0],[1,1,1],[0,0,0]],
-    7: [[0,0,0],[1,1,1],[0,0,0]]
+    1: np.array([[1,1],[1,1]]),               # O
+    2: np.array([[0,0,1],[1,1,1],[0,0,0]]),   # L
+    3: np.array([[1,1,1],[0,0,1],[0,0,0]]),   # J
+    4: np.array([[0,1,1],[1,1,0],[0,0,0]]),   # S
+    5: np.array([[1,1,0],[0,1,1],[0,0,0]]),   # Z
+    6: np.array([[1,1,1],[0,1,0],[0,0,0]]),   # T
+    7: np.array([[0,0,0],[1,1,1],[0,0,0]])    # I
 }
 color = {                   # colors of different blocks
     0: BLACK,
-    1: GREEN,       # cube
+    1: GREEN,       # O
     2: YELLOW,      # L
-    3: BLUE,        # reverse L
-    4: CYAN,        # flash
-    5: WHITE,       # reverse flash
+    3: BLUE,        # J
+    4: CYAN,        # S
+    5: WHITE,       # Z
     6: MAGENTA,     # T
-    7: RED          # long
+    7: RED          # I
 }
-
-def do_nothing(self):
-    pass
 
 class Game:
     def __init__(self):
@@ -46,10 +42,8 @@ class Game:
         self.score=0
         self.field=self.Field()             # empty field
         self.block=self.Block()             # new block
-        self.test_block=self.Block()        # used to check collisions before moving the real block
-        self.test_block=copy.deepcopy(self.block)   # copy all properties of block to test block   
+        self.test_block=copy.deepcopy(self.block)   # create copy of block including all prperties (used to check collisions before moving the real block) 
     def over(self):
-        hat.show_message("Game Over!", text_colour=RED)
         hat.show_message("Score: %s" % self.score, text_colour=GREEN)
         print("Score: %s" % self.score)
     def detect_collision(self):             # check whether test block collides with field elements or borders
@@ -61,11 +55,11 @@ class Game:
                        self.field.cells[self.test_block.ypos+row][self.test_block.xpos+column]>0:     # out of field range or collision
                         result=True
         return result           
-    def settle_block(self):                 # settle block into field, remove full lines, check for overflow and create new block
+    def land_block(self):                 # integrate block into field, remove full lines, check for overflow and create new block
         self.score+=1
         for row in range(self.block.size):
             for column in range(self.block.size):
-                if self.block.cells[row][column]>0:       # settle every solid cell of block
+                if self.block.cells[row][column]>0:       # don't integrate air
                     self.field.cells[self.block.ypos+row][self.block.xpos+column]=self.block.cells[row][column]
         self.field.remove_full_lines()
         if self.field.overflow():
@@ -79,7 +73,7 @@ class Game:
     def move_down(self):
         self.test_block.move_down()
         if self.detect_collision():
-            self.settle_block()
+            self.land_block()
         else:
             self.block=copy.deepcopy(self.test_block)
         self.refresh_display()
@@ -122,39 +116,33 @@ class Game:
                 self.block=copy.deepcopy(self.test_block)
                 self.refresh_display()
                 self.test_block.move_down()
-            self.settle_block()
+            self.land_block()
             self.refresh_display()
 
     class Field:
         def __init__(self):
-            self.cells=[[0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0],\
-                        [0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0]]  # 9 lines (line 0 invisible)
+            self.cells=np.zeros((9,8))          # empty field with 9 lines (line 0 invisible) and 8 columns
         def overflow(self):                     # check whether upper line is reached
-            result=self.cells[0].count(0)
-            if result<8:                        # line not empty?
+            if np.count_nonzero(self.cells[0]):                        # upper line (invisible) not empty?
                 return True
             else:
                 return False
         def remove_full_lines(self):
-            for row in range(8,0,-1):
-                while self.cells[row].count(0)==0: # no empty space
+            for row in range(8,0,-1):                           # from bottom to top
+                while np.count_nonzero(self.cells[row])==8:     # line full
                     for line in range(row,0,-1):
-                        self.cells[line]=copy.deepcopy(self.cells[line-1])     # replace line with line above
+                        self.cells[line]=self.cells[line-1]     # shift down all lines above and replace full line
         def display(self):
-            for row in range(1,9):
+            for row in range(8):
                 for column in range(8):
-                    hat.set_pixel(column, row-1, color[self.cells[row][column]])
+                    hat.set_pixel(column, row, color[self.cells[row+1][column]])
 
     class Block:
         def __init__(self):
-            self.type=randrange(1,8)
-            self.cells=copy.deepcopy(shape[self.type])
-            self.buffer_cells=copy.deepcopy(self.cells)              # buffer for rotation
-            self.size=len(self.cells[0])
-            for row in range(self.size):
-                for column in range(self.size):
-                    if self.cells[row][column]:
-                        self.cells[row][column]=self.type    # assign color values to block
+            self.type=randrange(1,8)                           # one out of seven available shapes
+            self.cells=np.copy(shape[self.type])
+            self.size=np.size(self.cells,0)                    # determine size (one shape is 2x2 only)
+            self.cells*=self.type                              # assign color code to block cells
             self.xpos=3
             self.ypos=0
         def move_down(self):
@@ -164,20 +152,17 @@ class Game:
         def move_right(self):
             self.xpos+=1
         def rotate_left(self):
-            for row in range(self.size):
-                for column in range(self.size):
-                    self.buffer_cells[row][column]=self.cells[self.size-1-column][row]
-            self.cells=copy.deepcopy(self.buffer_cells)
+            self.cells=np.rot90(self.cells)
         def rotate_right(self):
-            for row in range(self.size):
-                for column in range(self.size):
-                    self.buffer_cells[row][column]=self.cells[column][self.size-1-row]
-            self.cells=copy.deepcopy(self.buffer_cells)
+            self.cells=np.rot90(self.cells,3)
         def display(self):
             for row in range(self.size):
                 for column in range(self.size):
                     if self.cells[row][column]>0 and self.ypos+row>0:
                         hat.set_pixel(self.xpos+column, self.ypos+row-1, color[self.cells[row][column]])
+
+def do_nothing(self):
+    pass
 
 # create objects
 hat=SenseHat()
@@ -186,9 +171,9 @@ game=Game()
 # configure joystick
 hat.stick.direction_left = game.move_left
 hat.stick.direction_right = game.move_right
-hat.stick.direction_down = game.rotate_left
 hat.stick.direction_up = game.rotate_right
-hat.stick.direction_middle = game.drop
+hat.stick.direction_down = game.drop
+hat.stick.direction_middle = game.rotate_left
 
 # game loop
 game.refresh_display()
